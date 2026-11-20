@@ -22,20 +22,45 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Configurar Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Aceptar licencias Android SDK
+      - name: Configurar Android SDK y plataformas
+        shell: bash
         run: |
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "$SDK_ROOT" ]; then
+            SDK_ROOT="$HOME/Android/Sdk"
+            mkdir -p "$SDK_ROOT"
+          fi
+
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+
+          SDKMANAGER_BIN="$(find "$SDK_ROOT/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -n 1 || true)"
+          if [ -z "$SDKMANAGER_BIN" ]; then
+            echo "Instalando Android command-line tools..."
+            mkdir -p "$SDK_ROOT/cmdline-tools"
+            curl -fsSL -o /tmp/cmdline-tools.zip "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+            unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-extract
+            mv /tmp/cmdline-extract/cmdline-tools "$SDK_ROOT/cmdline-tools/latest"
+            SDKMANAGER_BIN="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          fi
+
+          SDK_BIN_DIR="$(dirname "$SDKMANAGER_BIN")"
+          echo "$SDK_BIN_DIR" >> "$GITHUB_PATH"
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+
+          yes | "$SDKMANAGER_BIN" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER_BIN" --sdk_root="$SDK_ROOT" "platform-tools" "platforms;android-36.1" "build-tools;36.0.0" || \
+          "$SDKMANAGER_BIN" --sdk_root="$SDK_ROOT" "platform-tools" "platforms;android-36" "build-tools;36.0.0" || true
 
       - name: Restaurar debug.keystore
+        shell: bash
         run: |
           if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
             base64 -d debug.keystore.base64 > debug.keystore
           fi
 
       - name: Preparar archivo .env
+        shell: bash
         env:
           YT_SECRET: ${{ secrets.YOUTUBE_API_KEY }}
         run: |
