@@ -1,0 +1,6 @@
+{
+  "name": "DeiPlay",
+  "description": "Plataforma mundial de videos, canales, Shorts, descargas autorizadas y reproductor flotante sin anuncios.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

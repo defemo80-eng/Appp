@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">DeiPlay</string>
+    <string name="slogan">Mira • Disfruta • Comparte</string>
+    <string name="nav_home">Inicio</string>
+    <string name="nav_shorts">Shorts</string>
+    <string name="nav_publish">Publicar</string>
+    <string name="nav_subscriptions">Suscripciones</string>
+    <string name="nav_library">Biblioteca</string>
+    <string name="search_placeholder">Buscar en DeiPlay...</string>
+    <string name="no_ads_badge">Experiencia sin anuncios</string>
+    <string name="cd_deiplay_logo">Logotipo oficial de DeiPlay</string>
+    <string name="cd_search">Buscar contenido mundial</string>
+    <string name="cd_notifications">Notificaciones</string>
+    <string name="cd_profile">Perfil y cuentas</string>
+    <string name="cd_menu">Menú lateral</string>
+</resources>
