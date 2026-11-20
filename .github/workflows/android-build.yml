@@ -52,12 +52,14 @@ jobs:
           "$SDKMANAGER_BIN" --sdk_root="$SDK_ROOT" "platform-tools" "platforms;android-36.1" "build-tools;36.0.0" || \
           "$SDKMANAGER_BIN" --sdk_root="$SDK_ROOT" "platform-tools" "platforms;android-36" "build-tools;36.0.0" || true
 
-      - name: Restaurar debug.keystore
+      - name: Restaurar y verificar debug.keystore
         shell: bash
         run: |
           if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
             base64 -d debug.keystore.base64 > debug.keystore
           fi
+          test -s debug.keystore
+          keytool -list -keystore debug.keystore -storepass android >/dev/null
 
       - name: Preparar archivo .env
         shell: bash
@@ -81,11 +83,8 @@ jobs:
       - name: Configurar Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Ejecutar pruebas unitarias
-        run: ./gradlew :app:testDebugUnitTest --no-daemon
-
       - name: Compilar Debug APK
-        run: ./gradlew :app:assembleDebug --no-daemon
+        run: ./gradlew :app:assembleDebug -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" -Dorg.gradle.workers.max=2 --no-daemon --stacktrace --console=plain
 
       - name: Subir APK compilado (DeiPlay)
         uses: actions/upload-artifact@v4
@@ -93,3 +92,6 @@ jobs:
           name: DeiPlay-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      - name: Ejecutar pruebas unitarias
+        run: ./gradlew :app:testDebugUnitTest -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" -Dorg.gradle.workers.max=2 --no-daemon --stacktrace --console=plain
