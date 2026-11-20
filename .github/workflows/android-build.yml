@@ -1,0 +1,70 @@
+name: Compilar DeiPlay APK
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Compilar APK y Pruebas
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Aceptar licencias Android SDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+
+      - name: Restaurar debug.keystore
+        run: |
+          if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          fi
+
+      - name: Preparar archivo .env
+        env:
+          YT_SECRET: ${{ secrets.YOUTUBE_API_KEY }}
+        run: |
+          if [ ! -f .env ]; then
+            cp .env.example .env
+          fi
+          if [ -n "$YT_SECRET" ]; then
+            if grep -q '^YOUTUBE_API_KEY=' .env; then
+              sed -i "s|^YOUTUBE_API_KEY=.*|YOUTUBE_API_KEY=$YT_SECRET|" .env
+            else
+              echo "YOUTUBE_API_KEY=$YT_SECRET" >> .env
+            fi
+          fi
+
+      - name: Dar permisos a gradlew
+        run: chmod +x gradlew
+
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Ejecutar pruebas unitarias
+        run: ./gradlew :app:testDebugUnitTest --no-daemon
+
+      - name: Compilar Debug APK
+        run: ./gradlew :app:assembleDebug --no-daemon
+
+      - name: Subir APK compilado (DeiPlay)
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeiPlay-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
