@@ -58,7 +58,7 @@ jobs:
           if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
             tr -d '\r\n ' < debug.keystore.base64 | base64 -d > debug.keystore || rm -f debug.keystore
           fi
-          if [ ! -s debug.keystore ]; then
+          if [ ! -s debug.keystore ] || ! keytool -list -keystore debug.keystore -storepass android >/dev/null 2>&1; then
             echo "Creando debug.keystore temporal para CI..."
             rm -f debug.keystore
             keytool -genkeypair -noprompt \
@@ -72,7 +72,7 @@ jobs:
               -dname "CN=Android Debug,O=Android,C=US"
           fi
           test -s debug.keystore
-          keytool -list -keystore debug.keystore -storepass android >/dev/null
+          keytool -list -keystore debug.keystore -storepass android
 
       - name: Preparar archivo .env
         shell: bash
@@ -101,7 +101,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Compilar Debug APK
-        run: ./gradlew :app:assembleDebug -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" -Dorg.gradle.workers.max=2 --no-daemon --stacktrace --console=plain
+        run: ./gradlew :app:assembleDebug -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" -Dorg.gradle.workers.max=2 --no-daemon --no-configuration-cache --stacktrace --console=plain
 
       - name: Subir APK compilado (DeiPlay)
         uses: actions/upload-artifact@v4
@@ -111,4 +111,4 @@ jobs:
           if-no-files-found: error
 
       - name: Ejecutar pruebas unitarias
-        run: ./gradlew :app:testDebugUnitTest -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" -Dorg.gradle.workers.max=2 --no-daemon --stacktrace --console=plain
+        run: ./gradlew :app:testDebugUnitTest -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" -Dorg.gradle.workers.max=2 --no-daemon --no-configuration-cache --stacktrace --console=plain
