@@ -7,6 +7,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Compilar APK y Pruebas
@@ -103,12 +106,31 @@ jobs:
       - name: Compilar Debug APK
         run: ./gradlew :app:assembleDebug -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" -Dorg.gradle.workers.max=2 --no-daemon --no-configuration-cache --stacktrace --console=plain
 
-      - name: Subir APK compilado (DeiPlay)
+      - name: Preparar DeiPlay.apk
+        shell: bash
+        run: |
+          cp app/build/outputs/apk/debug/*.apk DeiPlay.apk
+          ls -lh DeiPlay.apk
+
+      - name: Subir APK compilado (respaldo ZIP sin compresión)
         uses: actions/upload-artifact@v4
         with:
           name: DeiPlay-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: DeiPlay.apk
+          compression-level: 0
           if-no-files-found: error
+
+      - name: Publicar DeiPlay.apk directo en Releases (sin ZIP)
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v1.0.${{ github.run_number }}"
+          gh release create "$TAG" DeiPlay.apk \
+            --title "DeiPlay APK (v1.0.${{ github.run_number }})" \
+            --notes "Descarga directa de DeiPlay.apk sin extraer ZIP." \
+            --latest
 
       - name: Ejecutar pruebas unitarias
         run: ./gradlew :app:testDebugUnitTest -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" -Dorg.gradle.workers.max=2 --no-daemon --no-configuration-cache --stacktrace --console=plain
