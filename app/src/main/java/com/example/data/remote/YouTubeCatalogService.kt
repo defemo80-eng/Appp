@@ -306,10 +306,18 @@ class YouTubeCatalogService(
             rssRes.channels.firstOrNull()?.let { enrichChannelMetadataFromWeb(ucId, it) }
         }
 
-        val combinedVideos = (rssRes.videos + shortsRes?.videos.orEmpty())
-            .map { vid ->
-                if (vid.channelId == "ext_yt_shorts") vid.copy(channelId = "ext_yt_$ucId") else vid
-            }
+        val shortsVideos = shortsRes?.videos.orEmpty().map { vid ->
+            vid.copy(
+                channelId = "ext_yt_$ucId",
+                isShort = true,
+                sourceAttribution = enrichedChannel?.name?.let { "YouTube • $it" } ?: vid.sourceAttribution
+            )
+        }
+        val shortIdSet = shortsVideos.map { it.id }.toSet()
+
+        val combinedVideos = (rssRes.videos.map { vid ->
+            if (vid.id in shortIdSet) vid.copy(isShort = true) else vid
+        } + shortsVideos)
             .distinctBy { it.id }
 
         YouTubeSyncResult(
@@ -739,8 +747,9 @@ class YouTubeCatalogService(
             val channelNodes = mutableListOf<JSONObject>()
             val videoNodes = mutableListOf<JSONObject>()
             val reelNodes = mutableListOf<JSONObject>()
+            val lockupShortNodes = mutableListOf<JSONObject>()
 
-            collectRenderers(root, channelNodes, videoNodes, reelNodes)
+            collectRenderers(root, channelNodes, videoNodes, reelNodes, lockupShortNodes)
 
             for (node in channelNodes) {
                 val chId = node.optString("channelId")
@@ -911,6 +920,70 @@ class YouTubeCatalogService(
                     )
                 )
             }
+
+            for (lockup in lockupShortNodes) {
+                val vidId = lockup.optJSONObject("onTap")
+                    ?.optJSONObject("innertubeCommand")
+                    ?.optJSONObject("reelWatchEndpoint")
+                    ?.optString("videoId")
+                    ?.ifBlank {
+                        lockup.optString("entityId").removePrefix("shorts-shelf-item-")
+                    }
+                    .orEmpty()
+                if (vidId.isBlank()) continue
+                val title = lockup.optJSONObject("overlayMetadata")
+                    ?.optJSONObject("primaryText")
+                    ?.optString("content")
+                    .orEmpty()
+                    .ifBlank {
+                        lockup.optJSONObject("accessibilityText")?.optString("content")
+                            ?.substringBefore(",")
+                            .orEmpty()
+                            .ifBlank { "YouTube Short" }
+                    }
+                val viewsText = lockup.optJSONObject("overlayMetadata")
+                    ?.optJSONObject("secondaryText")
+                    ?.optString("content")
+                    .orEmpty()
+                val views = parseCompactCount(viewsText) ?: 0L
+                val rawThumb = lockup.optJSONObject("thumbnailViewModel")
+                    ?.optJSONObject("thumbnailViewModel")
+                    ?.optJSONObject("image")
+                    ?.optJSONArray("sources")
+                    ?.let { arr -> if (arr.length() > 0) arr.optJSONObject(arr.length() - 1)?.optString("url") else null }
+                    .orEmpty()
+                val thumb = when {
+                    rawThumb.startsWith("//") -> "https:$rawThumb"
+                    rawThumb.isNotBlank() -> rawThumb
+                    else -> "https://i.ytimg.com/vi/$vidId/hqdefault.jpg"
+                }
+
+                val fallbackChId = channels.firstOrNull()?.id ?: "ext_yt_shorts"
+                videos.add(
+                    VideoEntity(
+                        id = "yt_$vidId",
+                        channelId = fallbackChId,
+                        ownerUserId = "external_youtube",
+                        title = title,
+                        description = "Short oficial en YouTube.",
+                        thumbnailUrl = thumb,
+                        primaryVideoUrl = "https://www.youtube.com/shorts/$vidId",
+                        durationSeconds = 45L,
+                        category = "Entretenimiento",
+                        tagsCsv = "shorts",
+                        language = "Global",
+                        country = "Global",
+                        isShort = true,
+                        visibility = VideoVisibility.PUBLIC.name,
+                        sourceType = VideoSourceType.YOUTUBE_EMBED.name,
+                        sourceAttribution = "YouTube Shorts",
+                        licenseName = "YouTube • Reproductor oficial integrado",
+                        downloadAllowed = false,
+                        viewCount = views,
+                        likeCount = views / 20L
+                    )
+                )
+            }
         }.onFailure {
             Log.e("YouTubeCatalogService", "Failed parsing ytInitialData", it)
         }
@@ -925,24 +998,26 @@ class YouTubeCatalogService(
         node: Any?,
         channelOut: MutableList<JSONObject>,
         videoOut: MutableList<JSONObject>,
-        reelOut: MutableList<JSONObject>
+        reelOut: MutableList<JSONObject>,
+        lockupShortOut: MutableList<JSONObject>
     ) {
         when (node) {
             is JSONObject -> {
                 node.optJSONObject("channelRenderer")?.let { channelOut.add(it) }
                 node.optJSONObject("videoRenderer")?.let { videoOut.add(it) }
                 node.optJSONObject("reelItemRenderer")?.let { reelOut.add(it) }
+                node.optJSONObject("shortsLockupViewModel")?.let { lockupShortOut.add(it) }
                 val keys = node.keys()
                 while (keys.hasNext()) {
                     val k = keys.next()
-                    if (k != "channelRenderer" && k != "videoRenderer" && k != "reelItemRenderer") {
-                        collectRenderers(node.opt(k), channelOut, videoOut, reelOut)
+                    if (k != "channelRenderer" && k != "videoRenderer" && k != "reelItemRenderer" && k != "shortsLockupViewModel") {
+                        collectRenderers(node.opt(k), channelOut, videoOut, reelOut, lockupShortOut)
                     }
                 }
             }
             is JSONArray -> {
                 for (i in 0 until node.length()) {
-                    collectRenderers(node.opt(i), channelOut, videoOut, reelOut)
+                    collectRenderers(node.opt(i), channelOut, videoOut, reelOut, lockupShortOut)
                 }
             }
         }

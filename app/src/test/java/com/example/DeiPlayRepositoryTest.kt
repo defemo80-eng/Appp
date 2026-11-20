@@ -148,5 +148,35 @@ class DeiPlayRepositoryTest {
         assertTrue(deniedRes.isFailure)
         assertTrue(repository.adminUpdateVideoMetrics(acc2, updatedVideo, 999L, 999L).isFailure)
         assertTrue(repository.adminUpdateChannelSubscribers(acc2, chAfterSub, 999L).isFailure)
+
+        // 6. Channel owner can edit name, handle, description, country, avatar and banner; non-owners cannot
+        val sampleImg = File(context.cacheDir, "channel_banner.jpg").apply {
+            writeBytes(ByteArray(128) { 2 })
+        }
+        val editedChannel = repository.updateChannel(
+            channelId = channel.id,
+            ownerUserId = acc1.id,
+            name = "DeiPlay Global",
+            handle = "@deiplayglobal",
+            description = "Portada y nombre actualizados",
+            country = "Colombia",
+            avatarUri = Uri.fromFile(sampleImg),
+            bannerUri = Uri.fromFile(sampleImg)
+        ).getOrThrow()
+        assertEquals("DeiPlay Global", editedChannel.name)
+        assertEquals("@deiplayglobal", editedChannel.handle)
+        assertEquals("Colombia", editedChannel.country)
+        assertTrue(editedChannel.avatarUrl.isNotBlank())
+        assertTrue(editedChannel.bannerUrl.isNotBlank())
+
+        val unauthorizedEdit = repository.updateChannel(
+            channelId = channel.id,
+            ownerUserId = acc2.id,
+            name = "Hack",
+            handle = "@hack",
+            description = "",
+            country = "Global"
+        )
+        assertTrue(unauthorizedEdit.isFailure)
     }
 }

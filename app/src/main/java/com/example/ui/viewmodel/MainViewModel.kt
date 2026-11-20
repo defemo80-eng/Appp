@@ -366,6 +366,40 @@ class MainViewModel(
         }
     }
 
+    fun updateChannel(
+        channelId: String,
+        name: String,
+        handle: String,
+        description: String,
+        country: String,
+        avatarUri: Uri?,
+        bannerUri: Uri?,
+        clearBanner: Boolean = false,
+        onResult: (Result<ChannelEntity>) -> Unit
+    ) {
+        val uid = activeAccount.value?.id
+        if (uid == null) {
+            _showAuthModal.value = true
+            onResult(Result.failure(IllegalStateException("Inicia sesión primero")))
+            return
+        }
+        viewModelScope.launch {
+            onResult(
+                repository.updateChannel(
+                    channelId = channelId,
+                    ownerUserId = uid,
+                    name = name,
+                    handle = handle,
+                    description = description,
+                    country = country,
+                    avatarUri = avatarUri,
+                    bannerUri = bannerUri,
+                    clearBanner = clearBanner
+                )
+            )
+        }
+    }
+
     fun publishVideo(
         channelId: String,
         videoUri: Uri,

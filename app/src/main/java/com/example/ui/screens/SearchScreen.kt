@@ -27,6 +27,7 @@ import com.example.data.local.VideoWithChannel
 import com.example.data.model.*
 import com.example.ui.components.ChannelAvatar
 import com.example.ui.components.EmptyStateView
+import com.example.ui.components.ShortGridCard
 import com.example.ui.components.VideoCard
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.MainViewModel
@@ -35,6 +36,7 @@ import com.example.ui.viewmodel.MainViewModel
 fun SearchScreen(
     viewModel: MainViewModel,
     onWatchVideo: (VideoWithChannel) -> Unit,
+    onOpenShort: (VideoWithChannel) -> Unit,
     onOpenChannel: (String) -> Unit,
     onBack: () -> Unit
 ) {
@@ -144,6 +146,9 @@ fun SearchScreen(
         if (isSyncing) {
             LinearProgressIndicator(color = DeiPlayRed, modifier = Modifier.fillMaxWidth())
         }
+
+        val shortResults = remember(results) { results.filter { it.video.isShort } }
+        val videoResults = remember(results) { results.filter { !it.video.isShort } }
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -259,12 +264,36 @@ fun SearchScreen(
                 }
             }
 
-            // Video & Short Results
+            if (shortResults.isNotEmpty()) {
+                item {
+                    SectionHeader(
+                        icon = Icons.Filled.Bolt,
+                        iconTint = DeiPlayRedBright,
+                        title = "Shorts (${shortResults.size})",
+                        actionLabel = null,
+                        onAction = null
+                    )
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(shortResults, key = { "sshort_${it.video.id}" }) { item ->
+                            ShortGridCard(
+                                item = item,
+                                onClick = { onOpenShort(item) },
+                                modifier = Modifier.width(136.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Video Results
             item {
                 SectionHeader(
                     icon = Icons.Outlined.VideoLibrary,
                     iconTint = DeiPlayRed,
-                    title = "Resultados (${results.size})",
+                    title = "Videos (${videoResults.size})",
                     actionLabel = null,
                     onAction = null
                 )
@@ -281,7 +310,7 @@ fun SearchScreen(
                     )
                 }
             } else {
-                items(results, key = { "sres_${it.video.id}" }) { item ->
+                items(videoResults, key = { "sres_${it.video.id}" }) { item ->
                     VideoCard(
                         item = item,
                         onClick = { onWatchVideo(item) },

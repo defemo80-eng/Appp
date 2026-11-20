@@ -348,6 +348,60 @@ class DeiPlayRepository(
         Result.success(channel)
     }
 
+    suspend fun updateChannel(
+        channelId: String,
+        ownerUserId: String,
+        name: String,
+        handle: String,
+        description: String,
+        country: String,
+        avatarUri: Uri? = null,
+        bannerUri: Uri? = null,
+        clearBanner: Boolean = false
+    ): Result<ChannelEntity> = withContext(Dispatchers.IO) {
+        val existing = channelDao.getById(channelId)
+            ?: return@withContext Result.failure(IllegalArgumentException("Canal no encontrado"))
+        if (existing.ownerUserId != ownerUserId) {
+            return@withContext Result.failure(IllegalAccessException("No eres dueño de este canal"))
+        }
+
+        val cleanName = name.trim()
+        val cleanHandle = "@" + handle.trim().removePrefix("@").lowercase().replace(Regex("[^a-z0-9._]"), "")
+        if (cleanName.length < 2) {
+            return@withContext Result.failure(IllegalArgumentException("Nombre de canal muy corto"))
+        }
+        if (cleanHandle.length < 4) {
+            return@withContext Result.failure(IllegalArgumentException("Usuario único inválido"))
+        }
+        val handleOwner = channelDao.getByHandle(cleanHandle)
+        if (handleOwner != null && handleOwner.id != channelId) {
+            return@withContext Result.failure(IllegalArgumentException("Ese @handle ya está ocupado"))
+        }
+
+        val ts = System.currentTimeMillis()
+        val avatarPath = if (avatarUri != null) {
+            copyImageToInternalStorage(avatarUri, "ch_avatar_${channelId}_$ts.jpg") ?: existing.avatarUrl
+        } else {
+            existing.avatarUrl
+        }
+        val bannerPath = when {
+            bannerUri != null -> copyImageToInternalStorage(bannerUri, "ch_banner_${channelId}_$ts.jpg") ?: existing.bannerUrl
+            clearBanner -> ""
+            else -> existing.bannerUrl
+        }
+
+        val updated = existing.copy(
+            name = cleanName,
+            handle = cleanHandle,
+            avatarUrl = avatarPath,
+            bannerUrl = bannerPath,
+            description = description.trim(),
+            country = country.trim().ifBlank { "Global" }
+        )
+        channelDao.upsert(updated)
+        Result.success(updated)
+    }
+
     // --- Video & Short Publishing ---
 
     suspend fun publishLocalVideo(

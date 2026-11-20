@@ -1,10 +1,8 @@
 package com.example.ui
 
-import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.ContextWrapper
 import android.os.Build
-import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -29,8 +27,10 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
+import com.example.MainActivity
 import com.example.R
 import com.example.data.model.AccountRole
+import com.example.ui.components.DailyTubePlayerBox
 import com.example.ui.components.DeiPlayOfficialLogo
 import com.example.ui.components.FloatingMiniPlayer
 import com.example.ui.navigation.*
@@ -107,22 +107,24 @@ fun DeiPlayAppRoot(viewModel: MainViewModel) {
     val isWatchScreen = currentDestination?.hasRoute<WatchRoute>() == true
     val isShortsScreen = currentDestination?.hasRoute<ShortsRoute>() == true
 
-    // Configure Android Picture-in-Picture params dynamically
+    LaunchedEffect(
+        playerState.currentVideo?.video?.id,
+        playerState.isPlaying,
+        playerState.isMinimized,
+        playerState.videoWidth,
+        playerState.videoHeight
+    ) {
+        (context.findActivity() as? MainActivity)?.updateDeiPlayPipParams()
+    }
+
+    // Trigger Android System Picture-in-Picture (floating outside the app)
     fun triggerSystemPip() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val w = playerState.videoWidth.coerceAtLeast(1)
-            val h = playerState.videoHeight.coerceAtLeast(1)
-            val rawRatio = w.toFloat() / h.toFloat()
-            val rational = when {
-                rawRatio > 2.3f -> Rational(23, 10)
-                rawRatio < 0.44f -> Rational(10, 23)
-                else -> Rational(w, h)
+        val mainActivity = context.findActivity() as? MainActivity
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && mainActivity != null) {
+            val entered = mainActivity.tryEnterDeiPlayPip(forceWhenVideoLoaded = true)
+            if (!entered) {
+                viewModel.emitMessage("Activa Picture-in-Picture para DeiPlay en los ajustes de Android")
             }
-            val builder = PictureInPictureParams.Builder().setAspectRatio(rational)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                builder.setAutoEnterEnabled(isWatchScreen && playerState.isPlaying)
-            }
-            context.findActivity().enterPictureInPictureMode(builder.build())
         } else {
             viewModel.emitMessage("Picture-in-Picture del sistema requiere Android 8.0+")
         }
@@ -130,7 +132,7 @@ fun DeiPlayAppRoot(viewModel: MainViewModel) {
 
     val bottomTabs = listOf(
         BottomTab(R.string.nav_home, Icons.Filled.Home, Icons.Outlined.Home, HomeRoute, "nav_home"),
-        BottomTab(R.string.nav_shorts, Icons.Filled.Bolt, Icons.Outlined.Bolt, ShortsRoute, "nav_shorts"),
+        BottomTab(R.string.nav_shorts, Icons.Filled.Bolt, Icons.Outlined.Bolt, ShortsRoute(), "nav_shorts"),
         BottomTab(R.string.nav_publish, Icons.Filled.AddCircle, Icons.Outlined.AddCircleOutline, PublishRoute(false), "nav_publish"),
         BottomTab(R.string.nav_subscriptions, Icons.Filled.Subscriptions, Icons.Outlined.Subscriptions, SubscriptionsRoute, "nav_subscriptions"),
         BottomTab(R.string.nav_library, Icons.Filled.VideoLibrary, Icons.Outlined.VideoLibrary, LibraryRoute, "nav_library")
@@ -325,16 +327,21 @@ fun DeiPlayAppRoot(viewModel: MainViewModel) {
                                         navController.navigate(WatchRoute(item.video.id))
                                     },
                                     onOpenChannel = { chId -> navController.navigate(ChannelRoute(chId)) },
-                                    onOpenShorts = { navController.navigate(ShortsRoute) },
+                                    onOpenShorts = { shortId ->
+                                        navController.navigate(ShortsRoute(startVideoId = shortId))
+                                    },
                                     onOpenSearch = { navController.navigate(SearchRoute) }
                                 )
                             }
 
-                            composable<ShortsRoute> {
+                            composable<ShortsRoute> { backStack ->
+                                val route = backStack.toRoute<ShortsRoute>()
                                 ShortsScreen(
                                     viewModel = viewModel,
+                                    startVideoId = route.startVideoId,
                                     onOpenChannel = { chId -> navController.navigate(ChannelRoute(chId)) },
-                                    onOpenPublishShort = { navController.navigate(PublishRoute(defaultShort = true)) }
+                                    onOpenPublishShort = { navController.navigate(PublishRoute(defaultShort = true)) },
+                                    onBack = { navController.popBackStack() }
                                 )
                             }
 
@@ -365,6 +372,9 @@ fun DeiPlayAppRoot(viewModel: MainViewModel) {
                                         viewModel.playVideo(item, homeVideos)
                                         navController.navigate(WatchRoute(item.video.id))
                                     },
+                                    onOpenShort = { item ->
+                                        navController.navigate(ShortsRoute(startVideoId = item.video.id))
+                                    },
                                     onOpenChannel = { chId -> navController.navigate(ChannelRoute(chId)) },
                                     onOpenDownloads = { navController.navigate(DownloadsRoute) },
                                     onOpenPublish = { navController.navigate(PublishRoute(false)) },
@@ -378,6 +388,9 @@ fun DeiPlayAppRoot(viewModel: MainViewModel) {
                                     onWatchVideo = { item ->
                                         viewModel.playVideo(item, homeVideos)
                                         navController.navigate(WatchRoute(item.video.id))
+                                    },
+                                    onOpenShort = { item ->
+                                        navController.navigate(ShortsRoute(startVideoId = item.video.id))
                                     },
                                     onOpenChannel = { chId -> navController.navigate(ChannelRoute(chId)) },
                                     onBack = { navController.popBackStack() }
@@ -409,6 +422,10 @@ fun DeiPlayAppRoot(viewModel: MainViewModel) {
                                         viewModel.playVideo(item, homeVideos)
                                         navController.navigate(WatchRoute(item.video.id))
                                     },
+                                    onOpenShort = { item ->
+                                        navController.navigate(ShortsRoute(startVideoId = item.video.id))
+                                    },
+                                    onOpenPublish = { navController.navigate(PublishRoute(false)) },
                                     onBack = { navController.popBackStack() }
                                 )
                             }
@@ -467,6 +484,7 @@ fun DeiPlayAppRoot(viewModel: MainViewModel) {
                                         launchSingleTop = true
                                     }
                                 },
+                                onEnterSystemPip = { triggerSystemPip() },
                                 modifier = Modifier
                                     .align(Alignment.BottomEnd)
                                     .padding(end = 12.dp, bottom = 16.dp)
@@ -474,6 +492,21 @@ fun DeiPlayAppRoot(viewModel: MainViewModel) {
                         }
                     }
                 }
+            }
+
+            // Full-bleed System PiP overlay whenever Android enters PiP mode (even from minimized mini-player!)
+            if (inSystemPipMode && playerState.currentVideo != null) {
+                DailyTubePlayerBox(
+                    controller = viewModel.playerController,
+                    state = playerState,
+                    inSystemPipMode = true,
+                    onMinimize = {},
+                    onEnterSystemPip = {},
+                    onToggleFullscreen = {},
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(androidx.compose.ui.graphics.Color.Black)
+                )
             }
         }
     }

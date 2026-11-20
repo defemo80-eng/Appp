@@ -159,4 +159,55 @@ class YouTubeCatalogServiceTest {
         assertEquals(VideoSourceType.YOUTUBE_EMBED.name, vid.sourceType)
         assertFalse(vid.downloadAllowed)
     }
+
+    @Test
+    fun buildYouTubeEmbedHtml_includesAppOriginAndReferrerPolicyToPreventError152() {
+        val origin = com.example.ui.components.buildYouTubeAppOrigin("com.aistudio.deiplay.test")
+        assertEquals("https://com.aistudio.deiplay.test", origin)
+
+        val html = com.example.ui.components.buildYouTubeEmbedHtml("dQw4w9WgXcQ", isShort = true, appOrigin = origin)
+        assertTrue(html.contains("""<meta name="referrer" content="strict-origin-when-cross-origin"/>"""))
+        assertTrue(html.contains("""referrerpolicy="strict-origin-when-cross-origin""""))
+        assertTrue(html.contains("origin=https%3A%2F%2Fcom.aistudio.deiplay.test"))
+        assertTrue(html.contains("widget_referrer=https%3A%2F%2Fcom.aistudio.deiplay.test"))
+        assertTrue(html.contains("loop=1&playlist=dQw4w9WgXcQ"))
+    }
+
+    @Test
+    fun parseYtInitialDataSearchJson_extractsShortsLockupViewModelAsShort() {
+        val sampleShortsJson = """
+            {
+              "contents": {
+                "richGridRenderer": {
+                  "contents": [
+                    {
+                      "richItemRenderer": {
+                        "content": {
+                          "shortsLockupViewModel": {
+                            "entityId": "shorts-shelf-item-xyz987SHORT",
+                            "onTap": {
+                              "innertubeCommand": {
+                                "reelWatchEndpoint": { "videoId": "xyz987SHORT" }
+                              }
+                            },
+                            "overlayMetadata": {
+                              "primaryText": { "content": "Short de comedia" },
+                              "secondaryText": { "content": "1.2 M de vistas" }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+        """.trimIndent()
+
+        val parsed = YouTubeCatalogService().parseYtInitialDataSearchJson(sampleShortsJson)
+        val shortVid = parsed.videos.firstOrNull { it.id == "yt_xyz987SHORT" }
+        assertNotNull(shortVid)
+        assertTrue(shortVid!!.isShort)
+        assertEquals(1_200_000L, shortVid.viewCount)
+    }
 }

@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 data object HomeRoute
 
 @Serializable
-data object ShortsRoute
+data class ShortsRoute(val startVideoId: String? = null)
 
 @Serializable
 data class PublishRoute(val defaultShort: Boolean = false)

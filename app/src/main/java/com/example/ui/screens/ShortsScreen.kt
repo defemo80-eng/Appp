@@ -13,6 +13,8 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -47,13 +49,32 @@ import com.example.ui.viewmodel.MainViewModel
 @Composable
 fun ShortsScreen(
     viewModel: MainViewModel,
+    startVideoId: String? = null,
     onOpenChannel: (String) -> Unit,
-    onOpenPublishShort: () -> Unit
+    onOpenPublishShort: () -> Unit,
+    onBack: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val shorts by viewModel.publicShorts.collectAsStateWithLifecycle()
     val fallbackVideos by viewModel.publicVideos.collectAsStateWithLifecycle()
-    val feed = if (shorts.isNotEmpty()) shorts else fallbackVideos.take(10)
+    val requestedShort by remember(startVideoId) {
+        if (startVideoId.isNullOrBlank()) kotlinx.coroutines.flow.flowOf(null)
+        else viewModel.observeVideo(startVideoId)
+    }.collectAsStateWithLifecycle(initialValue = null)
+
+    val feed = remember(shorts, fallbackVideos, requestedShort) {
+        val base = if (shorts.isNotEmpty()) shorts else fallbackVideos.filter { it.video.isShort }.ifEmpty { fallbackVideos.take(10) }
+        val extra = requestedShort
+        if (extra != null && base.none { it.video.id == extra.video.id }) {
+            listOf(extra) + base
+        } else {
+            base
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.playerController.pausePlayback()
+    }
 
     if (feed.isEmpty()) {
         Box(
@@ -75,6 +96,16 @@ fun ShortsScreen(
     }
 
     val pagerState = rememberPagerState(pageCount = { feed.size })
+
+    LaunchedEffect(startVideoId, feed.size) {
+        if (!startVideoId.isNullOrBlank()) {
+            val targetIdx = feed.indexOfFirst { it.video.id == startVideoId }
+            if (targetIdx >= 0 && pagerState.currentPage != targetIdx) {
+                pagerState.scrollToPage(targetIdx)
+            }
+        }
+    }
+
     val shortsPlayer = remember {
         ExoPlayer.Builder(context.applicationContext).build().apply {
             repeatMode = Player.REPEAT_MODE_ONE
@@ -152,15 +183,17 @@ fun ShortsScreen(
                     }
                 }
 
+                // Bottom edge scrim only for caption legibility — leaves center & top crystal clear
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .fillMaxWidth()
+                        .height(220.dp)
+                        .align(Alignment.BottomCenter)
                         .background(
                             Brush.verticalGradient(
                                 listOf(
-                                    Color.Black.copy(alpha = 0.45f),
                                     Color.Transparent,
-                                    Color.Black.copy(alpha = 0.80f)
+                                    Color.Black.copy(alpha = 0.82f)
                                 )
                             )
                         )
@@ -282,16 +315,36 @@ fun ShortsScreen(
         }
 
         // Top Shorts header
+        val currentShort = feed.getOrNull(pagerState.currentPage)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (onBack != null && !startVideoId.isNullOrBlank()) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Volver", tint = DeiPlayWhite)
+                }
+            }
             Icon(Icons.Filled.Bolt, null, tint = DeiPlayRedBright)
             Spacer(Modifier.width(6.dp))
             Text("DeiPlay Shorts", style = MaterialTheme.typography.titleLarge, color = DeiPlayWhite, modifier = Modifier.weight(1f))
+            if (currentShort?.video?.sourceType == VideoSourceType.YOUTUBE_EMBED.name) {
+                IconButton(
+                    onClick = {
+                        val ytId = currentShort.video.id.removePrefix("yt_")
+                        runCatching {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/shorts/$ytId"))
+                            )
+                        }
+                    }
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, "Abrir Short en YouTube", tint = DeiPlayGold)
+                }
+            }
             FilledTonalButton(
                 onClick = onOpenPublishShort,
                 colors = ButtonDefaults.filledTonalButtonColors(containerColor = DeiPlayRed)

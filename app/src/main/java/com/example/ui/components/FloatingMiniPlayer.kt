@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.AspectRatio
+import androidx.compose.material.icons.outlined.PictureInPictureAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,6 +32,7 @@ fun FloatingMiniPlayer(
     controller: DeiPlayPlayerController,
     state: PlayerUiState,
     onExpandToFullWatch: (String) -> Unit,
+    onEnterSystemPip: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val video = state.currentVideo?.video ?: return
@@ -61,7 +63,7 @@ fun FloatingMiniPlayer(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
+                    .aspectRatio(if (video.isShort) 9f / 14f else 16f / 9f)
                     .clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp))
                     .clickable {
                         controller.expandPlayer()
@@ -102,6 +104,21 @@ fun FloatingMiniPlayer(
                             onExpandToFullWatch(video.id)
                         }
                 )
+                if (onEnterSystemPip != null) {
+                    IconButton(
+                        onClick = onEnterSystemPip,
+                        modifier = Modifier
+                            .size(34.dp)
+                            .testTag("floating_pip_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.PictureInPictureAlt,
+                            contentDescription = "Ventana flotante fuera de la app",
+                            tint = DeiPlayWhite,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
                 IconButton(
                     onClick = { expandedSize = !expandedSize },
                     modifier = Modifier.size(34.dp)

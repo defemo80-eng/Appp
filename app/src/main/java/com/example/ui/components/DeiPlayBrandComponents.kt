@@ -206,20 +206,22 @@ fun VideoCard(
                 )
             }
 
-            // Duration pill bottom-right
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(8.dp),
-                shape = RoundedCornerShape(6.dp),
-                color = Color.Black.copy(alpha = 0.85f)
-            ) {
-                Text(
-                    text = formatDuration(video.durationSeconds),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = DeiPlayWhite,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                )
+            // Duration pill bottom-right (hide 0:00 when RSS metadata lacks runtime)
+            if (video.durationSeconds > 0L || video.isShort) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(8.dp),
+                    shape = RoundedCornerShape(6.dp),
+                    color = if (video.isShort) DeiPlayRed.copy(alpha = 0.90f) else Color.Black.copy(alpha = 0.85f)
+                ) {
+                    Text(
+                        text = if (video.isShort) "SHORTS" else formatDuration(video.durationSeconds),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = DeiPlayWhite,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
             }
 
             if (video.downloadAllowed) {
@@ -410,6 +412,96 @@ fun EmptyStateView(
             ) {
                 Text(actionLabel, color = DeiPlayWhite)
             }
+        }
+    }
+}
+
+@Composable
+fun ShortGridCard(
+    item: VideoWithChannel,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val thumbModel: Any? = when {
+        item.video.thumbnailUrl.isBlank() -> null
+        item.video.thumbnailUrl.startsWith("/") -> File(item.video.thumbnailUrl)
+        else -> item.video.thumbnailUrl
+    }
+
+    Box(
+        modifier = modifier
+            .aspectRatio(9f / 16f)
+            .clip(RoundedCornerShape(14.dp))
+            .background(DeiPlaySurfaceVariant)
+            .clickable(onClick = onClick)
+            .testTag("short_card_${item.video.id}")
+    ) {
+        if (thumbModel != null) {
+            AsyncImage(
+                model = thumbModel,
+                contentDescription = item.video.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Icon(Icons.Filled.Bolt, null, tint = DeiPlayRedBright, modifier = Modifier.size(40.dp))
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0.0f to Color.Black.copy(alpha = 0.25f),
+                        0.45f to Color.Transparent,
+                        1.0f to Color.Black.copy(alpha = 0.88f)
+                    )
+                )
+        )
+
+        Surface(
+            color = DeiPlayRed.copy(alpha = 0.92f),
+            shape = RoundedCornerShape(6.dp),
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Icon(Icons.Filled.Bolt, null, tint = DeiPlayWhite, modifier = Modifier.size(11.dp))
+                Text(
+                    text = "SHORTS",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = DeiPlayWhite,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(10.dp)
+        ) {
+            Text(
+                text = item.video.title,
+                style = MaterialTheme.typography.labelLarge,
+                color = DeiPlayWhite,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = "${formatViewCount(item.video.viewCount)} vistas",
+                style = MaterialTheme.typography.labelSmall,
+                color = DeiPlayGold,
+                maxLines = 1
+            )
         }
     }
 }

@@ -187,7 +187,7 @@ fun HomeScreen(
     syncError: String?,
     onWatchVideo: (VideoWithChannel) -> Unit,
     onOpenChannel: (String) -> Unit,
-    onOpenShorts: () -> Unit,
+    onOpenShorts: (String?) -> Unit,
     onOpenSearch: () -> Unit
 ) {
     val context = LocalContext.current
@@ -449,8 +449,8 @@ fun HomeScreen(
             }
         }
 
-        // Shorts strip
-        val shortsPreview = if (shorts.isNotEmpty()) shorts else videos.take(6)
+        // Shorts strip (9:16 vertical cards)
+        val shortsPreview = shorts.ifEmpty { videos.filter { it.video.isShort } }
         if (shortsPreview.isNotEmpty()) {
             item {
                 SectionHeader(
@@ -458,14 +458,18 @@ fun HomeScreen(
                     iconTint = DeiPlayRedBright,
                     title = "Shorts",
                     actionLabel = "Ver todo",
-                    onAction = onOpenShorts
+                    onAction = { onOpenShorts(null) }
                 )
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 14.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    items(shortsPreview.take(10), key = { "short_strip_${it.video.id}" }) { item ->
-                        ShortPreviewCard(item = item, onClick = onOpenShorts)
+                    items(shortsPreview.take(12), key = { "short_strip_${it.video.id}" }) { item ->
+                        ShortGridCard(
+                            item = item,
+                            onClick = { onOpenShorts(item.video.id) },
+                            modifier = Modifier.width(136.dp)
+                        )
                     }
                 }
             }
@@ -716,19 +720,21 @@ private fun CompactHorizontalVideoCard(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
-            Surface(
-                color = Color.Black.copy(alpha = 0.85f),
-                shape = RoundedCornerShape(5.dp),
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(6.dp)
-            ) {
-                Text(
-                    text = formatDuration(item.video.durationSeconds),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = DeiPlayWhite,
-                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                )
+            if (item.video.durationSeconds > 0L || item.video.isShort) {
+                Surface(
+                    color = if (item.video.isShort) DeiPlayRed.copy(alpha = 0.90f) else Color.Black.copy(alpha = 0.85f),
+                    shape = RoundedCornerShape(5.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(6.dp)
+                ) {
+                    Text(
+                        text = if (item.video.isShort) "SHORTS" else formatDuration(item.video.durationSeconds),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = DeiPlayWhite,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                    )
+                }
             }
         }
         Spacer(Modifier.height(6.dp))
@@ -746,55 +752,6 @@ private fun CompactHorizontalVideoCard(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
-    }
-}
-
-@Composable
-private fun ShortPreviewCard(
-    item: VideoWithChannel,
-    onClick: () -> Unit
-) {
-    val thumbModel: Any? = if (item.video.thumbnailUrl.startsWith("/")) {
-        File(item.video.thumbnailUrl)
-    } else item.video.thumbnailUrl
-
-    Box(
-        modifier = Modifier
-            .width(126.dp)
-            .height(210.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(DeiPlaySurfaceVariant)
-            .clickable(onClick = onClick)
-    ) {
-        AsyncImage(
-            model = thumbModel,
-            contentDescription = item.video.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))))
-        )
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(8.dp)
-        ) {
-            Text(
-                text = item.video.title,
-                style = MaterialTheme.typography.labelMedium,
-                color = DeiPlayWhite,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = "${formatViewCount(item.video.viewCount)} vistas",
-                style = MaterialTheme.typography.labelSmall,
-                color = DeiPlayGold
-            )
-        }
     }
 }
 

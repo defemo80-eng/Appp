@@ -3,6 +3,9 @@ package com.example.ui.screens
 import android.content.Intent
 import android.net.Uri
 import android.text.format.Formatter
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -10,7 +13,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -20,6 +26,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -40,6 +47,7 @@ import com.example.data.model.formatRelativeDate
 import com.example.data.model.formatViewCount
 import com.example.ui.components.ChannelAvatar
 import com.example.ui.components.EmptyStateView
+import com.example.ui.components.ShortGridCard
 import com.example.ui.components.VideoCard
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.MainViewModel
@@ -165,6 +173,7 @@ fun SubscriptionsScreen(
 fun LibraryScreen(
     viewModel: MainViewModel,
     onWatchVideo: (VideoWithChannel) -> Unit,
+    onOpenShort: (VideoWithChannel) -> Unit,
     onOpenChannel: (String) -> Unit,
     onOpenDownloads: () -> Unit,
     onOpenPublish: () -> Unit,
@@ -182,6 +191,7 @@ fun LibraryScreen(
 
     var activeSection by remember { mutableStateOf("overview") }
     var showCreateChannel by remember { mutableStateOf(false) }
+    var editingChannel by remember { mutableStateOf<ChannelEntity?>(null) }
     var showCreatePlaylist by remember { mutableStateOf(false) }
 
     val videoMap = remember(allVideos, userVideos) {
@@ -307,7 +317,14 @@ fun LibraryScreen(
                                 leadingContent = { ChannelAvatar(ch.avatarUrl, ch.name, 44.dp) },
                                 headlineContent = { Text(ch.name, color = DeiPlayWhite) },
                                 supportingContent = { Text("${ch.handle} • ${formatViewCount(ch.subscriberCount)} suscriptores", color = DeiPlayTextSecondary) },
-                                trailingContent = { Icon(Icons.Filled.ChevronRight, null, tint = DeiPlayTextMuted) },
+                                trailingContent = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        IconButton(onClick = { editingChannel = ch }) {
+                                            Icon(Icons.Outlined.Edit, "Editar canal", tint = DeiPlayGold)
+                                        }
+                                        Icon(Icons.Filled.ChevronRight, null, tint = DeiPlayTextMuted)
+                                    }
+                                },
                                 colors = ListItemDefaults.colors(containerColor = DeiPlaySurface),
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(12.dp))
@@ -372,8 +389,22 @@ fun LibraryScreen(
                         EmptyStateView(Icons.Filled.Bolt, "Sin Shorts propios", "Publica un Short vertical.", "Publicar Short", onOpenPublish)
                     }
                 } else {
-                    items(myShorts, key = { "ms_${it.video.id}" }) { item ->
-                        VideoCard(item, { onWatchVideo(item) }, onOpenChannel, {}, {}, {})
+                    items(myShorts.chunked(2), key = { row -> "ms_row_${row.first().video.id}" }) { row ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            row.forEach { item ->
+                                ShortGridCard(
+                                    item = item,
+                                    onClick = { onOpenShort(item) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            if (row.size == 1) {
+                                Spacer(Modifier.weight(1f))
+                            }
+                        }
                     }
                 }
             }
@@ -417,10 +448,29 @@ fun LibraryScreen(
                     if (res.isSuccess) {
                         showCreateChannel = false
                         viewModel.emitMessage("Canal creado correctamente")
+                    } else {
+                        viewModel.emitMessage(res.exceptionOrNull()?.localizedMessage ?: "No se pudo crear el canal")
                     }
                 }
             },
             onDismiss = { showCreateChannel = false }
+        )
+    }
+
+    editingChannel?.let { target ->
+        EditChannelDialog(
+            channel = target,
+            onConfirm = { name, handle, desc, country, avatar, banner, clearBanner ->
+                viewModel.updateChannel(target.id, name, handle, desc, country, avatar, banner, clearBanner) { res ->
+                    if (res.isSuccess) {
+                        editingChannel = null
+                        viewModel.emitMessage("Canal actualizado")
+                    } else {
+                        viewModel.emitMessage(res.exceptionOrNull()?.localizedMessage ?: "No se pudo actualizar")
+                    }
+                }
+            },
+            onDismiss = { editingChannel = null }
         )
     }
 
@@ -637,9 +687,12 @@ fun ChannelScreen(
     channelId: String,
     viewModel: MainViewModel,
     onWatchVideo: (VideoWithChannel) -> Unit,
+    onOpenShort: (VideoWithChannel) -> Unit,
+    onOpenPublish: (() -> Unit)? = null,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val activeAccount by viewModel.activeAccount.collectAsStateWithLifecycle()
     val channel by viewModel.observeChannel(channelId).collectAsStateWithLifecycle(initialValue = null)
     val channelVideos by viewModel.observeChannelVideos(channelId).collectAsStateWithLifecycle(initialValue = emptyList())
     val isSubscribed by viewModel.observeIsSubscribed(channelId).collectAsStateWithLifecycle(initialValue = false)
@@ -649,6 +702,7 @@ fun ChannelScreen(
     }
 
     var selectedTab by remember { mutableIntStateOf(0) }
+    var showEditChannelDialog by remember { mutableStateOf(false) }
     val tabs = listOf("Videos", "Shorts", "Información")
 
     Column(
@@ -668,6 +722,12 @@ fun ChannelScreen(
             }
             Text(channel?.name ?: "Canal", style = MaterialTheme.typography.titleLarge, color = DeiPlayWhite, modifier = Modifier.weight(1f))
             channel?.let { ch ->
+                val isOwnerTop = activeAccount != null && ch.ownerUserId == activeAccount?.id
+                if (isOwnerTop) {
+                    IconButton(onClick = { showEditChannelDialog = true }) {
+                        Icon(Icons.Outlined.Edit, "Editar canal", tint = DeiPlayGold)
+                    }
+                }
                 IconButton(onClick = {
                     val sendIntent = Intent(Intent.ACTION_SEND).apply {
                         putExtra(Intent.EXTRA_TEXT, "Sigue el canal ${ch.name} (${ch.handle}) en DeiPlay: deiplay://channel/${ch.id}")
@@ -688,14 +748,57 @@ fun ChannelScreen(
             return@Column
         }
 
+        val isOwner = activeAccount != null && ch.ownerUserId == activeAccount?.id
+
+        val quickBannerPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+            if (uri != null && isOwner) {
+                viewModel.updateChannel(
+                    channelId = ch.id,
+                    name = ch.name,
+                    handle = ch.handle,
+                    description = ch.description,
+                    country = ch.country,
+                    avatarUri = null,
+                    bannerUri = uri
+                ) { res ->
+                    if (res.isSuccess) viewModel.emitMessage("Portada actualizada")
+                }
+            }
+        }
+
+        val quickAvatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+            if (uri != null && isOwner) {
+                viewModel.updateChannel(
+                    channelId = ch.id,
+                    name = ch.name,
+                    handle = ch.handle,
+                    description = ch.description,
+                    country = ch.country,
+                    avatarUri = uri,
+                    bannerUri = null
+                ) { res ->
+                    if (res.isSuccess) viewModel.emitMessage("Foto del canal actualizada")
+                }
+            }
+        }
+
         LazyColumn(contentPadding = PaddingValues(bottom = 100.dp)) {
             item {
                 // Channel Banner
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(130.dp)
-                        .background(DeiPlaySurfaceHigh)
+                        .height(148.dp)
+                        .background(
+                            Brush.linearGradient(
+                                listOf(DeiPlayRedDeep.copy(alpha = 0.75f), DeiPlaySurfaceHigh, DeiPlayBlack)
+                            )
+                        )
+                        .let {
+                            if (isOwner) it.clickable {
+                                quickBannerPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            } else it
+                        }
                 ) {
                     if (ch.bannerUrl.isNotBlank()) {
                         AsyncImage(
@@ -704,13 +807,65 @@ fun ChannelScreen(
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
                         )
+                    } else if (isOwner) {
+                        Column(
+                            modifier = Modifier.align(Alignment.Center),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(Icons.Outlined.AddPhotoAlternate, null, tint = DeiPlayGold, modifier = Modifier.size(28.dp))
+                            Spacer(Modifier.height(4.dp))
+                            Text("Toca para agregar portada", style = MaterialTheme.typography.labelMedium, color = DeiPlayWhite)
+                        }
+                    }
+
+                    if (isOwner) {
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.70f),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(10.dp)
+                                .clickable {
+                                    quickBannerPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(Icons.Outlined.PhotoCamera, null, tint = DeiPlayGold, modifier = Modifier.size(14.dp))
+                                Text("Cambiar portada", style = MaterialTheme.typography.labelSmall, color = DeiPlayWhite)
+                            }
+                        }
                     }
                 }
 
                 // Channel Header Info
                 Column(modifier = Modifier.padding(14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        ChannelAvatar(avatarUrl = ch.avatarUrl, name = ch.name, size = 64.dp)
+                        Box(
+                            modifier = if (isOwner) {
+                                Modifier.clickable {
+                                    quickAvatarPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                }
+                            } else Modifier
+                        ) {
+                            ChannelAvatar(avatarUrl = ch.avatarUrl, name = ch.name, size = 68.dp)
+                            if (isOwner) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = DeiPlayRed,
+                                    modifier = Modifier
+                                        .size(22.dp)
+                                        .align(Alignment.BottomEnd)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Outlined.PhotoCamera, "Cambiar foto", tint = DeiPlayWhite, modifier = Modifier.size(12.dp))
+                                    }
+                                }
+                            }
+                        }
                         Spacer(Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -731,19 +886,46 @@ fun ChannelScreen(
 
                     Spacer(Modifier.height(12.dp))
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = { viewModel.toggleSubscribe(ch) },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isSubscribed) DeiPlaySurfaceHigh else DeiPlayRed
-                            ),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(if (isSubscribed) "Suscrito" else "Suscribirse", color = DeiPlayWhite)
+                    if (isOwner) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Button(
+                                onClick = { showEditChannelDialog = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = DeiPlayRed),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("channel_edit_button")
+                            ) {
+                                Icon(Icons.Outlined.Edit, null, tint = DeiPlayWhite, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Editar canal", color = DeiPlayWhite)
+                            }
+                            if (onOpenPublish != null) {
+                                OutlinedButton(
+                                    onClick = onOpenPublish,
+                                    border = BorderStroke(1.dp, DeiPlayGold.copy(alpha = 0.7f)),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Outlined.VideoCall, null, tint = DeiPlayGold, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Publicar", color = DeiPlayGold)
+                                }
+                            }
                         }
-                        if (isSubscribed) {
-                            OutlinedButton(onClick = { viewModel.toggleSubscriptionBell(ch.id) }) {
-                                Icon(Icons.Outlined.NotificationsActive, "Notificaciones del canal", tint = DeiPlayGold)
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = { viewModel.toggleSubscribe(ch) },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isSubscribed) DeiPlaySurfaceHigh else DeiPlayRed
+                                ),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(if (isSubscribed) "Suscrito" else "Suscribirse", color = DeiPlayWhite)
+                            }
+                            if (isSubscribed) {
+                                OutlinedButton(onClick = { viewModel.toggleSubscriptionBell(ch.id) }) {
+                                    Icon(Icons.Outlined.NotificationsActive, "Notificaciones del canal", tint = DeiPlayGold)
+                                }
                             }
                         }
                     }
@@ -767,14 +949,50 @@ fun ChannelScreen(
             when (selectedTab) {
                 0 -> {
                     val vids = channelVideos.filter { !it.video.isShort }
-                    items(vids, key = { "chv_${it.video.id}" }) { item ->
-                        VideoCard(item, { onWatchVideo(item) }, {}, {}, {}, {}, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
+                    if (vids.isEmpty()) {
+                        item {
+                            EmptyStateView(
+                                icon = Icons.Outlined.OndemandVideo,
+                                title = "Sin videos largos aún",
+                                subtitle = if (isOwner) "Sube tu primer video desde Publicar." else "Este canal aún no ha publicado videos."
+                            )
+                        }
+                    } else {
+                        items(vids, key = { "chv_${it.video.id}" }) { item ->
+                            VideoCard(item, { onWatchVideo(item) }, {}, {}, {}, {}, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
+                        }
                     }
                 }
                 1 -> {
                     val shorts = channelVideos.filter { it.video.isShort }
-                    items(shorts, key = { "chs_${it.video.id}" }) { item ->
-                        VideoCard(item, { onWatchVideo(item) }, {}, {}, {}, {}, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
+                    if (shorts.isEmpty()) {
+                        item {
+                            EmptyStateView(
+                                icon = Icons.Filled.Bolt,
+                                title = "Sin Shorts aún",
+                                subtitle = if (isOwner) "Publica tu primer Short vertical." else "Este canal aún no tiene Shorts registrados."
+                            )
+                        }
+                    } else {
+                        items(shorts.chunked(2), key = { row -> "chs_row_${row.first().video.id}" }) { row ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                row.forEach { item ->
+                                    ShortGridCard(
+                                        item = item,
+                                        onClick = { onOpenShort(item) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                if (row.size == 1) {
+                                    Spacer(Modifier.weight(1f))
+                                }
+                            }
+                        }
                     }
                 }
                 2 -> {
@@ -791,5 +1009,192 @@ fun ChannelScreen(
                 }
             }
         }
+
+        if (showEditChannelDialog) {
+            EditChannelDialog(
+                channel = ch,
+                onConfirm = { name, handle, desc, country, avatar, banner, clearBanner ->
+                    viewModel.updateChannel(ch.id, name, handle, desc, country, avatar, banner, clearBanner) { res ->
+                        if (res.isSuccess) {
+                            showEditChannelDialog = false
+                            viewModel.emitMessage("Canal actualizado correctamente")
+                        } else {
+                            viewModel.emitMessage(res.exceptionOrNull()?.localizedMessage ?: "Error al editar el canal")
+                        }
+                    }
+                },
+                onDismiss = { showEditChannelDialog = false }
+            )
+        }
     }
+}
+
+@Composable
+fun EditChannelDialog(
+    channel: ChannelEntity,
+    onConfirm: (name: String, handle: String, desc: String, country: String, avatar: Uri?, banner: Uri?, clearBanner: Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var name by remember(channel.id) { mutableStateOf(channel.name) }
+    var handle by remember(channel.id) { mutableStateOf(channel.handle) }
+    var country by remember(channel.id) { mutableStateOf(channel.country) }
+    var description by remember(channel.id) { mutableStateOf(channel.description) }
+    var newAvatarUri by remember(channel.id) { mutableStateOf<Uri?>(null) }
+    var newBannerUri by remember(channel.id) { mutableStateOf<Uri?>(null) }
+    var clearBanner by remember(channel.id) { mutableStateOf(false) }
+
+    val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) newAvatarUri = uri
+    }
+    val bannerPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            newBannerUri = uri
+            clearBanner = false
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = DeiPlaySurface,
+        title = { Text("Editar canal", color = DeiPlayWhite) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Banner Preview
+                val bannerModel: Any? = when {
+                    newBannerUri != null -> newBannerUri
+                    !clearBanner && channel.bannerUrl.isNotBlank() ->
+                        if (channel.bannerUrl.startsWith("/")) File(channel.bannerUrl) else channel.bannerUrl
+                    else -> null
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(84.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(DeiPlaySurfaceHigh)
+                        .clickable {
+                            bannerPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (bannerModel != null) {
+                        AsyncImage(
+                            model = bannerModel,
+                            contentDescription = "Vista previa de portada",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    Surface(
+                        color = Color.Black.copy(alpha = 0.65f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = if (bannerModel != null) "Cambiar portada" else "+ Subir portada",
+                            color = DeiPlayGold,
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                // Avatar row
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    val avatarModel: Any? = when {
+                        newAvatarUri != null -> newAvatarUri
+                        channel.avatarUrl.isNotBlank() ->
+                            if (channel.avatarUrl.startsWith("/")) File(channel.avatarUrl) else channel.avatarUrl
+                        else -> null
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(CircleShape)
+                            .background(DeiPlayRed),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (avatarModel != null) {
+                            AsyncImage(
+                                model = avatarModel,
+                                contentDescription = "Foto de perfil del canal",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Text(
+                                text = name.trim().firstOrNull()?.uppercase() ?: "D",
+                                color = DeiPlayWhite,
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = { avatarPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Cambiar foto", color = DeiPlayWhite)
+                    }
+                    if (bannerModel != null) {
+                        TextButton(onClick = {
+                            newBannerUri = null
+                            clearBanner = true
+                        }) {
+                            Text("Quitar portada", color = DeiPlayRedBright, style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Nombre del canal *") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("edit_channel_name_input")
+                )
+                OutlinedTextField(
+                    value = handle,
+                    onValueChange = { handle = it },
+                    label = { Text("@usuario único *") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("edit_channel_handle_input")
+                )
+                OutlinedTextField(
+                    value = country,
+                    onValueChange = { country = it },
+                    label = { Text("País") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Descripción") },
+                    maxLines = 3,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(name, handle, description, country, newAvatarUri, newBannerUri, clearBanner) },
+                colors = ButtonDefaults.buttonColors(containerColor = DeiPlayRed),
+                modifier = Modifier.testTag("edit_channel_save_button")
+            ) {
+                Text("Guardar cambios", color = DeiPlayWhite)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar", color = DeiPlayTextSecondary) }
+        }
+    )
 }
